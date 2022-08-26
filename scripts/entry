@@ -1,11 +1,17 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
 
-mkdir -p bin dist
-if [ -e ./scripts/$1 ]; then
-    ./scripts/"$@"
+# Pull in the common helpers and reorient ourselves to the root of the repository.
+source $(dirname $0)/common
+
+# If the first argument is the name of a build script, run the script.
+#
+# Otherwise, just pretend the argument(s) are a command unto themselves and execute them.
+if [ -e "${SCRIPT_DIR}/$1" ]; then
+    ${SCRIPT_DIR}/"$@"
 else
     exec "$@"
 fi
 
-chown -R $DAPPER_UID:$DAPPER_GID .
+# Ensure all the files are owned by the UID/GID that `dapper` is running this build as.
+chown -R ${DAPPER_UID}:${DAPPER_GID} .

@@ -1,48 +1,59 @@
-#!/bin/bash
-. $(dirname $0)/version
-: ${STATE_DIR:=$(dirname $0)/../build/state/k3os-$TAG} # unique value per vm instance
-
+#!/usr/bin/env bash
 set -e
 
-if [ "$ARCH" = "amd64" ]; then
+# Example usages:
+#
+# Boot into the live CD mode:
+#
+#   ./scripts/run-qemu k3os.mode=live
+#
+# Silently install:
+#
+#   ./scripts/run-qemu k3os.mode=install k3os.install.silent k3os.install.device=/dev/vda k3os.install.power_off=true
+#
+# Boot into the currently installed version of k3OS:
+#
+#   ./scripts/run-qemu k3os.password=rancher
+#
+# Boot into recovery mode when a k3OS installation is already present:
+#
+#   ./scripts/run-qemu k3os.password=rancher k3os.mode=live
+
+# Pull in the common helpers and reorient ourselves to the root of the repository.
+source $(dirname $0)/common
+
+# Figure out which qemu binary we need to run for the given architecture.
+if [ "${ARCH}" = "amd64" ]; then
     QEMU_SYSTEM="qemu-system-x86_64"
-elif [ "$ARCH" = "arm64" ]; then
+elif [ "${ARCH}" = "arm64" ]; then
     QEMU_SYSTEM="qemu-system-aarch64"
 else
-    QEMU_SYSTEM="qemu-system-$ARCH"
+    QEMU_SYSTEM="qemu-system-${ARCH}"
 fi
 
-if [ ! -d $STATE_DIR ]; then
-    mkdir -p $STATE_DIR
+# Create the state directory where we'll store qemu disk images, and create the disk image if it
+# doesn't already exist.
+STATE_DIR="state/k3os-qemu-${VERSION}"
+if [ ! -d "${STATE_DIR}" ]; then
+    mkdir -p "${STATE_DIR}"
 fi
-if [ ! -e $STATE_DIR/${DISK_NAME:=vda.img} ]; then
-    qemu-img create -f qcow2 $STATE_DIR/${DISK_NAME} ${DISK_SIZE:=8g}
+
+DISK_PATH="${STATE_DIR}/${DISK_NAME:=vda.img}"
+if [ ! -e "${DISK_PATH}" ]; then
+    qemu-img create -f qcow2 "${DISK_PATH}" "${DISK_SIZE:=8g}"
 fi
 
-# Example Usage
-## live cd boot
-# ./scripts/run-qemu k3os.mode=live
-
-## silent install
-# DISK_NAME=test.img ./scripts/run-qemu k3os.mode=install k3os.install.silent k3os.install.device=/dev/vda k3os.install.power_off=true
-
-## run installed vm
-# DISK_NAME=test.img ./scripts/run-qemu k3os.password=rancher
-
-## recover installed vm
-# DISK_NAME=test.img ./scripts/run-qemu k3os.password=rancher k3os.mode=live
-
-exec $QEMU_SYSTEM \
+exec ${QEMU_SYSTEM} \
     -m ${MEMORY:=2048} \
     -machine accel=${ACCEL:="hax:kvm:hvf:tcg"} \
     -nographic \
     -serial mon:stdio \
     -rtc base=utc,clock=rt \
-    -chardev socket,path=$STATE_DIR/qga.sock,server,nowait,id=qga0 \
+    -chardev socket,path="${STATE_DIR}/qga.sock",server,nowait,id=qga0 \
     -device virtio-serial \
     -device virtserialport,chardev=qga0,name=org.qemu.guest_agent.0 \
-    -kernel $(dirname $0)/../dist/artifacts/k3os-vmlinuz-$ARCH \
-    -initrd $(dirname $0)/../dist/artifacts/k3os-initrd-$ARCH \
-    -drive if=ide,media=cdrom,file=$(dirname $0)/../dist/artifacts/k3os-$ARCH.iso \
-    -drive if=virtio,media=disk,file=$STATE_DIR/${DISK_NAME} \
+    -kernel "${ARTIFACT_DIR}/k3os-vmlinuz-${ARCH}" \
+    -initrd "${ARTIFACT_DIR}/k3os-initrd-${ARCH}" \
+    -drive if=ide,media=cdrom,file="${ARTIFACT_DIR}/k3os-${ARCH}.iso"\
+    -drive if=virtio,media=disk,file="${DISK_PATH}" \
     -append "console=${CONSOLE:=ttyS0} loglevel=${LOGLEVEL:=4} printk.devkmsg=${PRINTK_DEVKMSG:=on} $*"

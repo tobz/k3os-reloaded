@@ -4,12 +4,7 @@
 /.trash-cache
 /bin/
 /dist/
-/build/
+/state/
 *.swp
 /.bash_history
 /.docker/
-
-# Packer and vagrant
-.vagrant/
-packer_cache/
-*.box

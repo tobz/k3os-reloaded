@@ -1,9 +1,10 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
 
-cd $(dirname $0)
+# Pull in the common helpers and reorient ourselves to the root of the repository.
+source $(dirname $0)/common
 
-./build
-./test
-./validate
-./package
+${SCRIPT_DIR}/build
+${SCRIPT_DIR}/test
+${SCRIPT_DIR}/validate
+${SCRIPT_DIR}/package

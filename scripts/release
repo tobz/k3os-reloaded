@@ -1,3 +1,39 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -e
 
-exec $(dirname $0)/ci
+# Pull in the common helpers and reorient ourselves to the root of the repository.
+source $(dirname $0)/common
+
+# Build all of the assets and package them up.
+${SCRIPT_DIR}/ci
+
+echo
+echo "[*] Preparing publish assets for version '${VERSION}'..."
+
+# Generate the SHA256 signatures for each file.
+#
+# We also spit this out in the release notes as some tools specifically check the notes for a Github
+# release to find the checksums to verify assets after download.
+pushd "${ARTIFACT_DIR}"
+sha256sum * > "${OUTPUT_DIR}/SHA256SUMS"
+popd
+
+ASSET_CHECKSUMS=$(cat ${OUTPUT_DIR}/SHA256SUMS)
+
+# Build the release notes.
+cat << EOF > ${OUTPUT_DIR}/release-notes
+## Details
+
+**K3s Version:** \`v1.23.10+k3s1\`
+**Kernel:** \`5.15.0-46-generic\` ([assets](https://github.com/tobz/k3os-reloaded-kernel/releases/tag/5.15.0-46-generic))
+
+## Checksums
+
+\`\`\`text
+${ASSET_CHECKSUMS}
+\`\`\`
+EOF
+
+echo "Release is ready for publish! Run the following command to upload the release to Github:"
+echo
+echo "  gh release -R tobz/k3os-reloaded create ${VERSION} --notes-file ./dist/release-notes ./dist/artifacts/* ./dist/SHA256SUMS"

@@ -1,11 +1,10 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
 
-source $(dirname $0)/version
-source $(dirname $0)/images
+# Pull in the common helpers and reorient ourselves to the root of the repository.
+source $(dirname $0)/common
 
-cd $(dirname $0)/..
-
-cd images
-
-build_all "$@"
+# Now build the image layers.
+#
+# The specific layers to build can be passed to this script, which we then pass through below.
+build_all "${IMAGE_DIR}" "$@"

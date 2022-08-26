@@ -1,5 +1,0 @@
-#!/usr/bin/env bash
-
-/scripts/prepare
-/scripts/build
-/scripts/package

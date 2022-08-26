@@ -18,7 +18,7 @@ RUN apt-get --assume-yes update \
 
 ARG ARCH
 ENV KVERSION=5.15.0-46-generic
-ENV URL=https://github.com/tobz/k3os-reloaded-kernel/releases/download/5.15.0-46.49
+ENV URL=https://github.com/tobz/k3os-reloaded-kernel/releases/download/${KVERSION}
 ENV KERNEL_XZ=${URL}/kernel-generic_${ARCH}.tar.xz
 ENV KERNEL_EXTRA_XZ=${URL}/kernel-extra-generic_${ARCH}.tar.xz
 ENV KERNEL_HEADERS_XZ=${URL}/kernel-headers-generic_${ARCH}.tar.xz

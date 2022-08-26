@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+set -e
+
+# Common build directories.
+SCRIPT_DIR=$(dirname $0)
+SCRIPT_DIR=$(readlink -f ${SCRIPT_DIR})
+SOURCE_DIR="${SCRIPT_DIR}/.."
+IMAGE_DIR="${SOURCE_DIR}/images"
+OUTPUT_DIR="${SOURCE_DIR}/dist"
+ARTIFACT_DIR="${OUTPUT_DIR}/artifacts"
+
+export SCRIPT_DIR SOURCE_DIR OUTPUT_DIR ARTIFACT_DIR
+
+# Add the `-dirty` suffix if we're not building from a pristine refspec.
+if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+    DIRTY="-dirty"
+fi
+
+# If VERSION is empty, calculate the version based on the current commit/tag, and whether or not the
+# repository is in a "dirty" state.
+COMMIT=$(git rev-parse --short HEAD)
+GIT_TAG=$(git tag -l --contains HEAD | head -n 1)
+
+if [ -z "${VERSION}" ]; then
+    if [[ -z "${DIRTY}" && -n "${GIT_TAG}" ]]; then
+        VERSION="${GIT_TAG}"
+    else
+        VERSION="${COMMIT}${DIRTY}"
+    fi
+fi
+
+export VERSION COMMIT GIT_TAG DIRTY
+
+# Set up our architecture/tagging values.
+#
+# We draw from `go env GOHOSTARCH` if ARCH wasn't set directly.
+if [ -z "$ARCH" ]; then
+    ARCH=$(go env GOHOSTARCH)
+fi
+
+# Set up our architecture/tagging/repo values.
+ARCH=${ARCH:-"amd64"}
+TAG=${TAG:-"${VERSION}-${ARCH}"}
+REPO=${REPO:-"k3os-reloaded"}
+
+# Functions for building the image layers, and copying their assets out.
+build_all()
+{
+	BUILD_ROOT=$1
+    shift
+
+	pushd "${BUILD_ROOT}"
+
+	# If no arguments were passed, then build all image layers that are present.
+    if [ "$#" = 0 ]; then
+		echo "[*] Building all image layers."
+        set -- [0-9][0-9]*
+    fi
+
+    for layer; do
+        layer=$(basename ${layer})
+        IMAGE="${layer##[0-9][0-9]-}"
+        FULL_IMAGE="${REPO}/k3os-${IMAGE}:${TAG}"
+
+		pushd "${layer}"
+
+		# If the current image layer is marked as a multiarch image, make sure the architecture
+		# we're building for is supported, otherwise skip building it.
+        if [ -e archs ] && ! grep -w -q "${ARCH}" archs; then
+            echo "[*] Skipping ${FULL_IMAGE}: not marked to build on ${ARCH}."
+            popd
+            continue
+        fi
+
+        echo "[*] Building image layer '${IMAGE}' (${FULL_IMAGE})..."
+
+		# Figure out the build root for the image if there's an override `root` symlink.
+        ROOT=.
+        if [ -e root ]; then
+            ROOT=$(readlink -f root)
+        fi
+
+		# Time to actually build the image.
+        docker build --build-arg "TAG=${TAG}" \
+            --build-arg "VERSION=${VERSION}" \
+            --build-arg "REPO=${REPO}" \
+            --build-arg "ARCH=${ARCH}" \
+            -f Dockerfile \
+            -t "${FULL_IMAGE}" \
+            "${ROOT}"
+        popd
+    done
+
+	popd
+}
+
+copy_all()
+{
+    BUILD_ROOT=$1
+    shift
+
+    OUTPUT=$1
+    shift
+
+	pushd "${BUILD_ROOT}"
+
+	# If no arguments were passed, then copy the output from all image layers that are present.
+    if [ "$#" = 0 ]; then
+    echo "[*] Copying output artifacts from all output variants."
+        set -- [0-9][0-9]*
+    fi
+
+    for variant; do
+        variant=$(basename ${variant})
+        IMAGE="${variant##[0-9][0-9]-}"
+        FULL_IMAGE="${REPO}/k3os-${IMAGE}:${TAG}"
+
+		# If the current image layer is marked as a multiarch image, make sure the architecture
+		# we're building for is supported, otherwise we wouldn't have built it and thus have nothing
+		# to copy, so we have to skip it.
+        if [ -e "${variant}/archs" ] && ! grep -w -q "${ARCH}" "${variant}/archs"; then
+            echo "[*] Skipping ${FULL_IMAGE}: not marked to build on ${ARCH}."
+            continue
+        fi
+
+		echo "[*] Copying output artifacts from image layer '${IMAGE}' (${FULL_IMAGE})..."
+
+		# Creates a new container for the given image layer, which requires/assumes you've also
+		# already built the image layers via `build_all`.
+        CONTAINER_ID=$(docker create ${FULL_IMAGE})
+        
+		# Copy all the files in the container within `/output` to our local output directory, and
+		# then delete the container.
+        TMP_OUTPUT=$(mktemp -d)
+        docker cp "${CONTAINER_ID}:/output" "${TMP_OUTPUT}"
+        if [ -d "${TMP_OUTPUT}/output" ]; then
+            pushd "${TMP_OUTPUT}/output"
+            cp * "${OUTPUT}"
+            popd
+
+            rm -rf "${TMP_OUTPUT}/output"
+        fi
+        docker rm -f "${CONTAINER_ID}"
+    done
+
+	popd
+}
