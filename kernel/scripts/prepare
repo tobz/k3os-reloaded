@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -xe
+
+# Grab the source for the vanilla Linux kernel.
+wget -q -P /tmp/ https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${KERNEL_VERSION}.tar.xz
+
+mkdir -p /usr/src
+tar -C /usr/src -x -f /tmp/linux-${KERNEL_VERSION}.tar.xz
+
+# Move our custom configuration into place.
+cp /work/${KERNEL_VERSION}/kernel-config /usr/src/linux-${KERNEL_VERSION}/.config

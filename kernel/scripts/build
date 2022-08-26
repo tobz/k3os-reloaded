@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -xe
+
+KERNEL_DIR=/usr/src/linux-${KERNEL_VERSION}
+NPROC=$(getconf _NPROCESSORS_ONLN)
+
+# Build the kernel.
+pushd ${KERNEL_DIR}
+fakeroot make -j${NPROC}
+popd

@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -xe
+
+KERNEL_DIR=/usr/src/linux-${KERNEL_VERSION}
+
+# Make our output directory where the kernel/kernel modules can be copied out.
+mkdir /dist

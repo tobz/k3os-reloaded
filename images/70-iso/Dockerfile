@@ -22,7 +22,7 @@ COPY --from=package /output/ /usr/src/iso/
 
 COPY config.yaml /usr/src/iso/k3os/system/
 RUN mkdir -p /output && \
-    grub-mkrescue -o /output/k3os.iso /usr/src/iso/. -- -volid K3OS -joliet on && \
+    grub-mkrescue -o /output/k3os.iso /usr/src/iso/. -- -volid K3OS && \
     [ -e /output/k3os.iso ] # grub-mkrescue doesn't exit non-zero on failure
 
 CMD ["run-kvm.sh"]

@@ -1,6 +1,6 @@
 ARG REPO
 ARG TAG
-FROM ubuntu:focal
+FROM ubuntu:jammy
 
 RUN apt-get --assume-yes update \
  && apt-get --assume-yes install \
@@ -17,8 +17,8 @@ RUN apt-get --assume-yes update \
  && echo 'nls_iso8859_1' >> /etc/initramfs-tools/modules
 
 ARG ARCH
-ENV KVERSION=5.4.0-88-generic
-ENV URL=https://github.com/rancher/k3os-kernel/releases/download/5.4.0-88.99-rancher1
+ENV KVERSION=5.15.0-46-generic
+ENV URL=https://github.com/tobz/k3os-reloaded-kernel/releases/download/5.15.0-46.49
 ENV KERNEL_XZ=${URL}/kernel-generic_${ARCH}.tar.xz
 ENV KERNEL_EXTRA_XZ=${URL}/kernel-extra-generic_${ARCH}.tar.xz
 ENV KERNEL_HEADERS_XZ=${URL}/kernel-headers-generic_${ARCH}.tar.xz
@@ -32,9 +32,9 @@ RUN curl -fL $KERNEL_HEADERS_XZ -o /usr/src/kernel-headers.tar.xz
 # Extract to /usr/src/root
 RUN mkdir -p /usr/src/root && \
     cd /usr/src/root && \
-    tar xvf /usr/src/kernel.tar.xz && \
-    tar xvf /usr/src/kernel-extra.tar.xz && \
-    tar xvf /usr/src/kernel-headers.tar.xz
+    tar xf /usr/src/kernel.tar.xz && \
+    tar xf /usr/src/kernel-extra.tar.xz && \
+    tar xf /usr/src/kernel-headers.tar.xz
 
 # Create initrd
 RUN mkdir /usr/src/initrd && \
