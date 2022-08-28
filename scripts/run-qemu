@@ -45,11 +45,11 @@ fi
 
 exec ${QEMU_SYSTEM} \
     -m ${MEMORY:=2048} \
-    -machine accel=${ACCEL:="hax:kvm:hvf:tcg"} \
+    -machine accel=${ACCEL:="kvm:tcg"} \
     -nographic \
     -serial mon:stdio \
     -rtc base=utc,clock=rt \
-    -chardev socket,path="${STATE_DIR}/qga.sock",server,nowait,id=qga0 \
+    -chardev socket,path="${STATE_DIR}/qga.sock",server=on,wait=off,id=qga0 \
     -device virtio-serial \
     -device virtserialport,chardev=qga0,name=org.qemu.guest_agent.0 \
     -kernel "${ARTIFACT_DIR}/k3os-vmlinuz-${ARCH}" \
