@@ -80,12 +80,12 @@ do_format()
     if [ "$PARTTABLE" = "gpt" ]; then
         BOOT_NUM=1
         STATE_NUM=2
-        parted -s ${DEVICE} mkpart primary fat32 0% 50MB
-        parted -s ${DEVICE} mkpart primary ext4 50MB 750MB
+        parted -s ${DEVICE} mkpart primary fat32 0% 64MB
+        parted -s ${DEVICE} mkpart primary ext4 64MB 1024MB
     else
         BOOT_NUM=
         STATE_NUM=1
-        parted -s ${DEVICE} mkpart primary ext4 0% 700MB
+        parted -s ${DEVICE} mkpart primary ext4 0% 1024MB
     fi
     parted -s ${DEVICE} set 1 ${BOOTFLAG} on
     partprobe ${DEVICE} 2>/dev/null || true
