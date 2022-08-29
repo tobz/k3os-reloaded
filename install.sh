@@ -227,14 +227,33 @@ EOF
 
 get_iso()
 {
+    # Run `blkid` first to ensure all of the partition label information is correct and up-to-date.
+    #
+    # For users of the ISO installation media, a hybrid image is generated where there's multiple
+    # partitions, related to supporting both MBR and GPT partitioning schemes. Only one of the
+    # partitions is the actual data partition, holding the K3OS installer files that we need to
+    # copy.
+    #
+    # However, the label applied to that partition, the one we search for to figure out which block
+    # device (partition with the installer files) we need to mount, also gets applied to the overall
+    # block device i.e. the USB drive the ISO image was written to.
+    #
+    # Sometimes, the kernel seems to get confused about this and returns the overall drive (i.e.
+    # `/dev/sda`) when we ask it to find the block device with an ID of `K3OS`. By running `blkid`
+    # for a non-existent ID, we force it to refresh itself, which regenerates the internal state,
+    # and ultimately leads to the correct partition being associated with the label.
+    blkid -L SHOULD_NEVER_EXIST >/dev/null || true
 
-    ### When booting install media from USB, there is a chance that the K3OS label
-    ### will detect the proper partition.  For that reason, we allow the admin
-    ### to explicitly set the ISO_DEVICE variable before invoking install
+    # Query `blkid` to see if we can find any installation media attached with the volume ID that we
+    # specifically use when building the ISO image.
     if [ -z "${ISO_DEVICE}" ]; then
         ISO_DEVICE=$(blkid -L K3OS || true)
     fi
 
+    # If we couldn't find a partition matching our typical installation media layout, find all
+    # top-level block devices (disks, not partitions) and see if we can mount them in read-only
+    # mode. The first one we find that can be mounted read-only will be assumed to be the
+    # installation media.
     if [ -z "${ISO_DEVICE}" ]; then
         for i in $(lsblk -o NAME,TYPE -n | grep -w disk | awk '{print $1}'); do
             mkdir -p ${DISTRO}
@@ -246,6 +265,9 @@ get_iso()
         done
     fi
 
+    # If we still don't know what block device we should be using as our installation media, and
+    # we've been given an explicit URL to an ISO image, download that ISO and mount it as a loopback
+    # device, and point ourselves at the generated name for that loopback device.
     if [ -z "${ISO_DEVICE}" ] && [ -n "$K3OS_INSTALL_ISO_URL" ]; then
         TEMP_FILE=$(mktemp k3os.XXXXXXXX.iso)
         get_url ${K3OS_INSTALL_ISO_URL} ${TEMP_FILE}
@@ -253,8 +275,9 @@ get_iso()
         rm -f $TEMP_FILE
     fi
 
+    # If we still have nothing, bail out.
     if [ -z "${ISO_DEVICE}" ]; then
-        echo "#### There is no k3os ISO device"
+        echo "#### There is no k3OS ISO device"
         return 1
     fi
 }
