@@ -52,18 +52,18 @@ setup_kernel()
 
 perr()
 {
-    echo "[ERROR]" "$@" 1>&2
+    echo "[!]" "$@" 1>&2
 }
 
 pfatal()
 {
-    echo "[FATAL]" "$@" 1>&2
+    echo "[!]" "$@" 1>&2
     exit 1
 }
 
 pinfo()
 {
-    echo " * " "$@"
+    echo "[*]" "$@"
 }
 
 cleanup()

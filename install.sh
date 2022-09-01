@@ -13,20 +13,23 @@ get_url()
 {
     FROM=$1
     TO=$2
+
+    echo "[*] Downloading ${FROM}, saving to ${TO}..."
+
     case $FROM in
         ftp*|http*|tftp*)
             n=0
             attempts=5
             until [ "$n" -ge "$attempts" ]
             do
-                curl -o $TO -fL ${FROM} && break
+                curl -o "${TO}" -fL "${FROM}" && break
                 n=$((n+1))
                 echo "Failed to download, retry attempt ${n} out of ${attempts}"
                 sleep 2
             done
             ;;
         *)
-            cp -f $FROM $TO
+            cp -f "${FROM}" "${TO}"
             ;;
     esac
 }
@@ -34,12 +37,12 @@ get_url()
 cleanup2()
 {
     if [ -n "${TARGET}" ]; then
-        umount ${TARGET}/boot/efi || true
-        umount ${TARGET} || true
+        umount "${TARGET}/boot/efi" || true
+        umount "${TARGET}" || true
     fi
 
-    losetup -d ${ISO_DEVICE} || losetup -d ${ISO_DEVICE%?} || true
-    umount $DISTRO || true
+    losetup -d "${ISO_DEVICE}" || losetup -d "${ISO_DEVICE%?}" || true
+    umount "${DISTRO}" || true
 }
 
 cleanup()
@@ -65,19 +68,28 @@ usage()
 
 do_format()
 {
-    if [ "$K3OS_INSTALL_NO_FORMAT" = "true" ]; then
+    # If we've been instructed to not format the state device, simply try to see if there's already
+    # a device with the state label. If not, and a state device has been specified, add the state
+    # label to that device before we skip formatting.
+    if [ "${K3OS_INSTALL_NO_FORMAT}" = "true" ]; then
         STATE=$(blkid -L K3OS_STATE || true)
-        if [ -z "$STATE" ] && [ -n "$DEVICE" ]; then
-            tune2fs -L K3OS_STATE $DEVICE
+        if [ -z "${STATE}" ] && [ -n "${DEVICE}" ]; then
+            tune2fs -L K3OS_STATE "${DEVICE}" >/dev/null
             STATE=$(blkid -L K3OS_STATE)
         fi
 
+        echo "[*] Formatting of install device disabled by user. Skipping."
         return 0
     fi
 
-    dd if=/dev/zero of=${DEVICE} bs=1M count=1
+    # Zero out any partition table information on the state device.
+    echo "[*] Zeroing out install device and building state/boot partitions..."
+    dd if=/dev/zero of=${DEVICE} bs=1M count=1 >/dev/null
+
+    # Label our state device with the partition table type (GPT, MSDOS i.e. MBR) that we're using,
+    # and partition the drive accordingly.
     parted -s ${DEVICE} mklabel ${PARTTABLE}
-    if [ "$PARTTABLE" = "gpt" ]; then
+    if [ "${PARTTABLE}" = "gpt" ]; then
         BOOT_NUM=1
         STATE_NUM=2
         parted -s ${DEVICE} mkpart primary fat32 0% 64MB
@@ -87,76 +99,103 @@ do_format()
         STATE_NUM=1
         parted -s ${DEVICE} mkpart primary ext4 0% 1024MB
     fi
+
+    # Set the boot flag for the boot partition, and probe the device to update all of the partition
+    # information, which includes briefly sleeping afterwards to make sure things have settled.
     parted -s ${DEVICE} set 1 ${BOOTFLAG} on
-    partprobe ${DEVICE} 2>/dev/null || true
+    partprobe ${DEVICE} &>/dev/null || true
     sleep 2
 
-    PREFIX=${DEVICE}
-    if [ ! -e ${PREFIX}${STATE_NUM} ]; then
-        PREFIX=${DEVICE}p
+    # Figure out the necessary device prefixes so we can refer to the boot and state partitions.
+    PREFIX="${DEVICE}"
+    if [ ! -e "${PREFIX}${STATE_NUM}" ]; then
+        PREFIX="${DEVICE}p"
     fi
 
-    if [ ! -e ${PREFIX}${STATE_NUM} ]; then
-        echo Failed to find ${PREFIX}${STATE_NUM} or ${DEVICE}${STATE_NUM} to format
+    if [ ! -e "${PREFIX}${STATE_NUM}" ]; then
+        echo "[!] Failed to find ${PREFIX}${STATE_NUM} or ${DEVICE}${STATE_NUM} to format."
         exit 1
     fi
 
     if [ -n "${BOOT_NUM}" ]; then
-        BOOT=${PREFIX}${BOOT_NUM}
+        BOOT="${PREFIX}${BOOT_NUM}"
     fi
-    STATE=${PREFIX}${STATE_NUM}
-
-    mkfs.ext4 -F -L K3OS_STATE ${STATE}
+    STATE="${PREFIX}${STATE_NUM}"
+    
+    # Format the state partition, and if a dedicated boot partition was created, format that as
+    # well.
+    echo "[*] Formatting state/boot partitions..."
+    mkfs.ext4 -F -L K3OS_STATE "${STATE}" >/dev/null
     if [ -n "${BOOT}" ]; then
-        mkfs.vfat -F 32 ${BOOT}
-        fatlabel ${BOOT} K3OS_GRUB
+        mkfs.vfat -F 32 "${BOOT}" >/dev/null
+        fatlabel "${BOOT}" K3OS_GRUB
     fi
 }
 
 do_mount()
 {
-    TARGET=/run/k3os/target
-    mkdir -p ${TARGET}
-    mount ${STATE} ${TARGET}
-    mkdir -p ${TARGET}/boot
+    # Mount our target state partition, as well as the target boot partition, which we'll copy over
+    # the relevant OS files into.
+    echo "[*] Mounting state and boot partitions..."
+    TARGET="/run/k3os/target"
+    mkdir -p "${TARGET}/boot"
+    mount "${STATE}" "${TARGET}"
     if [ -n "${BOOT}" ]; then
-        mkdir -p ${TARGET}/boot/efi
-        mount ${BOOT} ${TARGET}/boot/efi
+        mkdir -p "${TARGET}/boot/efi"
+        mount "${BOOT}" "${TARGET}/boot/efi"
     fi
 
-    mkdir -p ${DISTRO}
-    mount -o ro ${ISO_DEVICE} ${DISTRO} || mount -o ro ${ISO_DEVICE%?} ${DISTRO}
+    # Mount our installation media at a known location.
+    echo "[*] Mounting installation media (${ISO_DEVICE}) at ${DISTRO}..."
+    mkdir -p "${DISTRO}"
+    mount -o ro "${ISO_DEVICE}" "${DISTRO}" || mount -o ro "${ISO_DEVICE%?}" "${DISTRO}"
 }
 
 do_copy()
 {
-    tar cf - -C ${DISTRO} k3os | tar xvf - -C ${TARGET}
-    if [ -n "$STATE_NUM" ]; then
-        echo $DEVICE $STATE_NUM > $TARGET/k3os/system/growpart
+    # Copy the files from the installation media into the state partition.
+    echo "[*] Copying distribution from installation media to state partition..."
+    tar cf - -C "${DISTRO}" k3os | tar xf - -C "${TARGET}"
+    if [ -n "${STATE_NUM}" ]; then
+        # Store a record of what device the state partition lives on, so that we can do a
+        # post-install partition expansion to utilize the remaining space on the overall device.
+        echo "${DEVICE} ${STATE_NUM}" > "${TARGET}/k3os/system/growpart"
     fi
 
-    if [ -n "$K3OS_INSTALL_CONFIG_URL" ]; then
-        get_url "$K3OS_INSTALL_CONFIG_URL" ${TARGET}/k3os/system/config.yaml
+    # If a specific k3OS configuration path has been specified, download it and move it into place.
+    if [ -n "${K3OS_INSTALL_CONFIG_URL}" ]; then
+        echo "[*] Using custom K3OS configuration from ${K3OS_INSTALL_CONFIG_URL}."
+
+        get_url "${K3OS_INSTALL_CONFIG_URL}" ${TARGET}/k3os/system/config.yaml
         chmod 600 ${TARGET}/k3os/system/config.yaml
     fi
 
-    if [ "$K3OS_INSTALL_TAKE_OVER" = "true" ]; then
-        touch ${TARGET}/k3os/system/takeover
+    # If we're doing a "takeover" install, touch our takeover marker file.
+    #
+    # Additionally, see if we've been instructed to power off when done installing.
+    if [ "${K3OS_INSTALL_TAKE_OVER}" = "true" ]; then
+        touch "${TARGET}/k3os/system/takeover"
 
-        if [ "$K3OS_INSTALL_POWER_OFF" = true ] || grep -q 'k3os.install.power_off=true' /proc/cmdline; then
-            touch ${TARGET}/k3os/system/poweroff
+        if [ "${K3OS_INSTALL_POWER_OFF}" = true ] || grep -q 'k3os.install.power_off=true' /proc/cmdline; then
+            echo "[*] System marked for power off after installation completes."
+            touch "${TARGET}/k3os/system/poweroff"
         fi
     fi
 }
 
 install_grub()
 {
-    if [ "$K3OS_INSTALL_DEBUG" ]; then
+    echo "[*] Installing Grub configuration..."
+
+    # If we were instructed to be in debug mode during the install, propagate this to the Grub
+    # configuration for all of the relevant menu entries.
+    if [ "${K3OS_INSTALL_DEBUG}" ]; then
         GRUB_DEBUG="k3os.debug"
     fi
 
-    mkdir -p ${TARGET}/boot/grub
-    cat > ${TARGET}/boot/grub/grub.cfg << EOF
+    # Push the Grub configuration into place.
+    mkdir -p "${TARGET}/boot/grub"
+    cat > "${TARGET}/boot/grub/grub.cfg" << EOF
 set default=0
 set timeout=10
 
@@ -204,17 +243,17 @@ EOF
     if [ -z "${K3OS_INSTALL_TTY}" ]; then
         TTY=$(tty | sed 's!/dev/!!')
     else
-        TTY=$K3OS_INSTALL_TTY
+        TTY="${K3OS_INSTALL_TTY}"
     fi
-    if [ -e "/dev/${TTY%,*}" ] && [ "$TTY" != tty1 ] && [ "$TTY" != console ] && [ -n "$TTY" ]; then
-        sed -i "s!console=tty1!console=tty1 console=${TTY}!g" ${TARGET}/boot/grub/grub.cfg
+    if [ -e "/dev/${TTY%,*}" ] && [ "${TTY}" != tty1 ] && [ "${TTY}" != console ] && [ -n "${TTY}" ]; then
+        sed -i "s!console=tty1!console=tty1 console=${TTY}!g" "${TARGET}/boot/grub/grub.cfg"
     fi
 
-    if [ "$K3OS_INSTALL_NO_FORMAT" = "true" ]; then
+    if [ "${K3OS_INSTALL_NO_FORMAT}" = "true" ]; then
         return 0
     fi
 
-    if [ "$K3OS_INSTALL_FORCE_EFI" = "true" ]; then
+    if [ "${K3OS_INSTALL_FORCE_EFI}" = "true" ]; then
         if [ $(uname -m) = "aarch64" ]; then
             GRUB_TARGET="--target=arm64-efi"
         else
@@ -222,32 +261,18 @@ EOF
         fi
     fi
 
+    echo "[*] Rebuilding boot files with new Grub configuration..."
+
+    # Install the Grub bootloader to finalize all of the relevant files.
     grub-install ${GRUB_TARGET} --boot-directory=${TARGET}/boot --removable ${DEVICE}
 }
 
 get_iso()
 {
-    # Run `blkid` first to ensure all of the partition label information is correct and up-to-date.
-    #
-    # For users of the ISO installation media, a hybrid image is generated where there's multiple
-    # partitions, related to supporting both MBR and GPT partitioning schemes. Only one of the
-    # partitions is the actual data partition, holding the K3OS installer files that we need to
-    # copy.
-    #
-    # However, the label applied to that partition, the one we search for to figure out which block
-    # device (partition with the installer files) we need to mount, also gets applied to the overall
-    # block device i.e. the USB drive the ISO image was written to.
-    #
-    # Sometimes, the kernel seems to get confused about this and returns the overall drive (i.e.
-    # `/dev/sda`) when we ask it to find the block device with an ID of `K3OS`. By running `blkid`
-    # for a non-existent ID, we force it to refresh itself, which regenerates the internal state,
-    # and ultimately leads to the correct partition being associated with the label.
-    blkid -L SHOULD_NEVER_EXIST >/dev/null || true
-
-    # Query `blkid` to see if we can find any installation media attached with the volume ID that we
+    # Query `lsblk` to see if we can find any installation media attached with the volume ID that we
     # specifically use when building the ISO image.
     if [ -z "${ISO_DEVICE}" ]; then
-        ISO_DEVICE=$(blkid -L K3OS || true)
+        ISO_DEVICE=$(lsblk -J -o NAME,LABEL | jq -r '.blockdevices[].children?[]? | select(.label == "K3OS") | "/dev/\(.name)"' | head -1 || true)
     fi
 
     # If we couldn't find a partition matching our typical installation media layout, find all
@@ -255,11 +280,11 @@ get_iso()
     # mode. The first one we find that can be mounted read-only will be assumed to be the
     # installation media.
     if [ -z "${ISO_DEVICE}" ]; then
-        for i in $(lsblk -o NAME,TYPE -n | grep -w disk | awk '{print $1}'); do
-            mkdir -p ${DISTRO}
-            if mount -o ro /dev/$i ${DISTRO}; then
-                ISO_DEVICE="/dev/$i"
-                umount ${DISTRO}
+        for dev in $(lsblk -o NAME,TYPE -n | grep -w disk | awk '{print $1}'); do
+            mkdir -p "${DISTRO}"
+            if mount -o ro "/dev/${dev}" "${DISTRO}"; then
+                ISO_DEVICE="/dev/${dev}"
+                umount "${DISTRO}"
                 break
             fi
         done
@@ -268,55 +293,69 @@ get_iso()
     # If we still don't know what block device we should be using as our installation media, and
     # we've been given an explicit URL to an ISO image, download that ISO and mount it as a loopback
     # device, and point ourselves at the generated name for that loopback device.
-    if [ -z "${ISO_DEVICE}" ] && [ -n "$K3OS_INSTALL_ISO_URL" ]; then
+    if [ -z "${ISO_DEVICE}" ] && [ -n "${K3OS_INSTALL_ISO_URL}" ]; then
         TEMP_FILE=$(mktemp k3os.XXXXXXXX.iso)
-        get_url ${K3OS_INSTALL_ISO_URL} ${TEMP_FILE}
-        ISO_DEVICE=$(losetup --show -f $TEMP_FILE)
-        rm -f $TEMP_FILE
+        get_url "${K3OS_INSTALL_ISO_URL}" "${TEMP_FILE}"
+        ISO_DEVICE=$(losetup --show -f ${TEMP_FILE})
+        rm -f "${TEMP_FILE}"
     fi
 
     # If we still have nothing, bail out.
     if [ -z "${ISO_DEVICE}" ]; then
-        echo "#### There is no k3OS ISO device"
+        echo "[!] No installation media was detected."
         return 1
     fi
+
+    echo "[*] Installation media detected as ${ISO_DEVICE}."
 }
 
 setup_style()
 {
-    if [ "$K3OS_INSTALL_FORCE_EFI" = "true" ] || [ -e /sys/firmware/efi ]; then
-        PARTTABLE=gpt
-        BOOTFLAG=esp
+    # Figure out if we're booting in legacy MS-DOS mode, or EFI mode.
+    if [ "${K3OS_INSTALL_FORCE_EFI}" = "true" ] || [ -e /sys/firmware/efi ]; then
+        echo "[*] Using EFI mode for boot disk configuration."
+
+        PARTTABLE="gpt"
+        BOOTFLAG="esp"
         if [ ! -e /sys/firmware/efi ]; then
-            echo WARNING: installing EFI on to a system that does not support EFI
+            echo "WARNING: Installing EFI on to a system that does not support EFI!"
         fi
     else
-        PARTTABLE=msdos
-        BOOTFLAG=boot
+        echo "[*] Using MBR for boot disk configuration."
+
+        PARTTABLE="msdos"
+        BOOTFLAG="boot"
     fi
 }
 
 validate_progs()
 {
-    for i in $PROGS; do
-        if [ ! -x "$(which $i)" ]; then
-            MISSING="${MISSING} $i"
+    # For each required program that's specified, make sure it exists.
+    #
+    # If it does not exist, add it to the missing list.
+    for prog in ${PROGS}; do
+        if [ ! -x "$(which $prog)" ]; then
+            MISSING="${MISSING} $prog"
         fi
     done
 
     if [ -n "${MISSING}" ]; then
-        echo "The following required programs are missing for installation: ${MISSING}"
+        echo "[!] Some required installation programs are missing: ${MISSING}"
         exit 1
     fi
+
+    echo "[*] All required programs for installation are present."
 }
 
 validate_device()
 {
-    DEVICE=$K3OS_INSTALL_DEVICE
-    if [ ! -b ${DEVICE} ]; then
-        echo "You should use an available device. Device ${DEVICE} does not exist."
+    DEVICE="${K3OS_INSTALL_DEVICE}"
+    if [ ! -b "${DEVICE}" ]; then
+        echo "[!] Target install device \`${DEVICE}\` does not exist."
         exit 1
     fi
+
+    echo "[*] Target install device detected as ${DEVICE}."
 }
 
 create_opt()
@@ -376,12 +415,12 @@ fi
 if [ -e /etc/os-release ]; then
     source /etc/os-release
 
-    if [ -z "$K3OS_INSTALL_ISO_URL" ]; then
+    if [ -z "${K3OS_INSTALL_ISO_URL}" ]; then
         K3OS_INSTALL_ISO_URL=${ISO_URL}
     fi
 fi
 
-if [ -z "$K3OS_INSTALL_DEVICE" ]; then
+if [ -z "${K3OS_INSTALL_DEVICE}" ]; then
     usage
 fi
 
@@ -398,14 +437,15 @@ do_copy
 install_grub
 create_opt
 
-if [ -n "$INTERACTIVE" ]; then
+if [ -n "${INTERACTIVE}" ]; then
     exit 0
 fi
 
-if [ "$K3OS_INSTALL_POWER_OFF" = true ] || grep -q 'k3os.install.power_off=true' /proc/cmdline; then
+# Either power off or reboot the system, depending on the configuration.
+if [ "${K3OS_INSTALL_POWER_OFF}" = true ] || grep -q 'k3os.install.power_off=true' /proc/cmdline; then
     poweroff -f
 else
-    echo " * Rebooting system in 5 seconds (CTRL+C to cancel)"
+    echo "[*] Rebooting system in 5 seconds... (CTRL+C to cancel)"
     sleep 5
     reboot -f
 fi

@@ -13,7 +13,7 @@ cat > /etc/issue << "COW"
 COW
 
 cat >> /etc/issue << EOF
-$PRETTY_NAME
+${PRETTY_NAME}
 Kernel \r on an \m (\l)
 
 ================================================================================

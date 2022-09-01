@@ -55,4 +55,4 @@ setup_dirs
 setup_kernel
 setup_config
 
-pinfo Bootstrapped
+pinfo "Base system bootstrapped."

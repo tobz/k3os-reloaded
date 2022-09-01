@@ -2,8 +2,8 @@
 set -e
 
 rescue() {
-    echo ERROR "Something went wrong, run with cmdline k3os.debug for more logging"
-    echo Dropping to shell
+    echo ERROR "Something went wrong, run with cmdline \`k3os.debug\` for more logging."
+    echo "Dropping to rescue shell."
     exec bash
 }
 
@@ -12,31 +12,40 @@ export PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin
 . /usr/libexec/k3os/functions
 . /usr/lib/os-release
 
-pinfo Welcome to $PRETTY_NAME
+pinfo "Welcome to ${PRETTY_NAME}"
 
+# Set our debugging mode.
 if [ "$K3OS_DEBUG" = "true" ]; then
     set -x
 fi
 
+# Bootstrap the base system, which sets up most system directories and executes the initrd phase of
+# k3OS configuration.
 if ! ${SCRIPTS}/bootstrap; then
     rescue
 fi
 
 exec >/dev/console </dev/console 2>&1
 
+# Ensures that if we're in debug mode, the right environment variables/sentinel files are set.
 reinit_debug
 
+# Determine the boot mode we should be using.
 if ! ${SCRIPTS}/mode; then
     rescue
 fi
 
 trap rescue EXIT
 
+# Based on the detected boot mode, run the appropriate boot mode script.
 export K3OS_MODE=$(</run/k3os/mode)
-pinfo Running mode: ${K3OS_MODE}
-source $SCRIPTS/mode-${K3OS_MODE}
+pinfo "Detected boot mode: ${K3OS_MODE}"
+source ${SCRIPTS}/mode-${K3OS_MODE}
 
-pinfo Booting system
-source $SCRIPTS/boot
+# Now that we're configured for the given boot mode, actually run the k3OS boot sequence, which is
+# responsible for post-install cleanup, but primarily for mounting the appropriate directories and
+# configuring system services.
+pinfo "Booting system"
+source ${SCRIPTS}/boot
 
 exec /sbin/init

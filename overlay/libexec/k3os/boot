@@ -12,10 +12,10 @@ setup_ttys()
     for x in $(cat /proc/cmdline); do
     case $x in
         rescue)
-            MODE=shell
+            MODE="shell"
             ;;
         console=*)
-            CONSOLE_SPEC=${x#console=}
+            CONSOLE_SPEC="${x#console=}"
             IFS=, read TTY BAUDRATE _ <<<"${CONSOLE_SPEC}"
 
             if [ -n "$BAUDRATE" ]; then
@@ -194,7 +194,7 @@ grow_live()
             # /dev/nvme0n1p2 => 2
             NUM=$(echo "$PART" | sed 's!.*[^0-9]!!')
         fi
-        pinfo Growing ${PART:=${DEV}${NUM}}
+        pinfo "Growing ${PART:=${DEV}${NUM}}"
         do_grow_live $DEV $NUM $PART || true
         rm -f /k3os/system/growpart
     fi

@@ -5,45 +5,45 @@ source $SCRIPTS/functions
 for x in $(cat /proc/cmdline); do
     case $x in
         rescue)
-            MODE=shell
+            MODE="shell"
             ;;
         k3os.mode=*)
-            MODE=${x#k3os.mode=}
+            MODE="${x#k3os.mode=}"
             ;;
         k3os.fallback_mode=*)
-            FALLBACK_MODE=${x#k3os.fallback_mode=}
+            FALLBACK_MODE="${x#k3os.fallback_mode=}"
             ;;
     esac
 done
 
 MODE_WAIT_SECONDS=30
 
-while [ -z "$MODE" ] && (( MODE_WAIT_SECONDS > 0 )); do
+while [ -z "${MODE}" ] && (( MODE_WAIT_SECONDS > 0 )); do
     # If `k3os.mode` was not specified, and we see a k3OS state partition, then default to the disk boot
     # mode. This just means we boot from disk like normal.
-    if [ -z "$MODE" ] && [ -n "$(blkid -L K3OS_STATE)" ]; then
-        MODE=disk
+    if [ -z "${MODE}" ] && [ -n "$(blkid -L K3OS_STATE)" ]; then
+        MODE="disk"
     fi
 
     # If K3OS_MODE has been specified directly, use that as our boot mode instead.
-    if [ -n "$K3OS_MODE" ]; then
-        MODE=$K3OS_MODE
+    if [ -n "${K3OS_MODE}" ]; then
+        MODE="${K3OS_MODE}"
     fi
 
     # If we still haven't determined the boot mode to use, set the mode to whatever is specified as the
     # fallback mode. This may also be empty, which we'll deal with below.
-    if [ -z "$MODE" ]; then
+    if [ -z "${MODE}" ]; then
         MODE="${FALLBACK_MODE}"
     fi
 
     # If no fallback boot mode was set, see if we should be running in local mode.
     if [ -z "$MODE" ] && [ "$(stat -f -c '%T' /)" != "tmpfs" ]; then
-        MODE=local
+        MODE="local"
     fi
 
     # We couldn't detect the boot mode, so wait and try again.
     if [ -z "$MODE" ]; then
-    echo "Couldn't determine boot mode, waiting $MODE_WAIT_SECONDS seconds..."
+    echo "Couldn't determine boot mode, waiting ${MODE_WAIT_SECONDS} seconds..."
     sleep 1
     MODE_WAIT_SECONDS=$((MODE_WAIT_SECONDS - 1))
     fi
@@ -54,9 +54,9 @@ done
 #
 # Otherwise, set the mode for the rest of the boot process to use.
 if [ -z "$MODE" ]; then
-    pfatal "Failed to determine boot mode (did you forget to set k3os.mode?)"
-elif [ ! -e $SCRIPTS/mode-${MODE} ]; then
-    pfatal "Mode script does not exist for ${MODE}"
+    pfatal "Failed to determine boot mode. Did you forget to set \`k3os.mode\`?"
+elif [ ! -e "${SCRIPTS}/mode-${MODE}" ]; then
+    pfatal "Mode script does not exist for \`${MODE}\`."
 else
     echo "$MODE" > /run/k3os/mode
 fi
