@@ -34,6 +34,9 @@ ${ASSET_CHECKSUMS}
 \`\`\`
 EOF
 
-echo "Release is ready for publish! Run the following command to upload the release to Github:"
+echo "Release is ready for publish! Run the following commands to upload the release to Github and push the Docker images to GHCR:"
 echo
 echo "  gh release -R tobz/k3os-reloaded create ${VERSION} --notes-file ./dist/release-notes ./dist/artifacts/* ./dist/SHA256SUMS"
+echo
+echo "  docker tag ${FULL_K3OS_IMAGE} ghcr.io/tobz/${CLEAN_K3OS_IMAGE}"
+echo "  docker push ghcr.io/tobz/${CLEAN_K3OS_IMAGE}"

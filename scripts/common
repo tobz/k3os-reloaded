@@ -42,6 +42,8 @@ fi
 ARCH=${ARCH:-"amd64"}
 TAG=${TAG:-"${VERSION}-${ARCH}"}
 REPO=${REPO:-"k3os-reloaded"}
+FULL_K3OS_IMAGE="${REPO}/k3os-full:${TAG}"
+CLEAN_K3OS_IMAGE="${REPO}/k3os:${VERSION}"
 
 # Functions for building the image layers, and copying their assets out.
 build_all()
